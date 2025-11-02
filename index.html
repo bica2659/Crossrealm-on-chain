@@ -524,7 +524,7 @@
     <script>
         // ============ CONFIGURATION ============
         
-        const CONTRACT_ADDRESS = "0x70Ea24005684b8811f97352faC9B7dd2f568b196";
+        const CONTRACT_ADDRESS = "0x70Ea24005684b881f97352faC9B7dd2f568b196";
         
         const CORE_TESTNET = {
             chainId: "0x45c",
@@ -619,6 +619,21 @@
         
         async function createGame() {
             if (!contract) return;
+
+            // Check network before creating game
+            const network = await provider.getNetwork();
+            if (network.chainId !== 1116) {
+                showAlert('Wrong network! Please switch to Core Testnet2', 'error');
+                try {
+                    await window.ethereum.request({
+                        method: 'wallet_switchEthereumChain',
+                        params: [{ chainId: '0x45c' }],
+                    });
+                } catch (e) {
+                    console.error('Network switch failed:', e);
+                }
+                return;
+            }
 
             const stake = document.getElementById('stakeAmount').value;
             
