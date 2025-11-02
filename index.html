@@ -620,39 +620,54 @@
 
         // ============ GAME FUNCTIONS ============
         
-        async function createGame() {
-            if (!contract) return;
+       async function createGame() {
+    if (!contract) return;
 
-            const stake = document.getElementById('stakeAmount').value;
-            
-            if (!stake || parseFloat(stake) < 0.01) {
-                showAlert('Minimum stake is 0.01 CORE', 'error');
-                return;
+    const stake = document.getElementById('stakeAmount').value;
+    
+    if (!stake || parseFloat(stake) < 0.01) {
+        showAlert('Minimum stake is 0.01 CORE', 'error');
+        return;
+    }
+
+    try {
+        showAlert('Creating game...', 'info');
+
+        const tx = await contract.createGame({
+            value: ethers.utils.parseEther(stake)
+        });
+
+        showAlert('Transaction submitted...', 'info');
+        const receipt = await tx.wait();
+        
+        // ✅ FIXED: Handle event parsing safely
+        let gameId = 'unknown';
+        try {
+            if (receipt.events && receipt.events.length > 0) {
+                gameId = receipt.events[0].args.gameId.toString();
+            } else if (receipt.logs && receipt.logs.length > 0) {
+                // Try parsing from logs if events not available
+                const log = receipt.logs[0];
+                const iface = contract.interface;
+                const parsed = iface.parseLog(log);
+                gameId = parsed.args.gameId.toString();
             }
-
-            try {
-                showAlert('Creating game...', 'info');
-
-                const tx = await contract.createGame({
-                    value: ethers.utils.parseEther(stake)
-                });
-
-                showAlert('Transaction submitted...', 'info');
-                const receipt = await tx.wait();
-                
-                const gameId = receipt.events[0].args.gameId.toString();
-                showAlert(`Game #${gameId} created!`, 'success');
-
-                setTimeout(() => {
-                    loadPendingGames();
-                    loadMyGames();
-                }, 2000);
-
-            } catch (error) {
-                console.error(error);
-                showAlert('Failed to create game: ' + error.message, 'error');
-            }
+        } catch (e) {
+            console.log('Could not parse gameId from receipt:', e);
         }
+        
+        showAlert(`Game #${gameId} created! ✅`, 'success');
+
+        setTimeout(() => {
+            loadPendingGames();
+            loadMyGames();
+        }, 2000);
+
+    } catch (error) {
+        console.error(error);
+        showAlert('Failed to create game: ' + error.message, 'error');
+    }
+}
 
         async function joinGame(gameId, stake) {
             if (!contract) return;
