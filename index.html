@@ -527,13 +527,13 @@
         const CONTRACT_ADDRESS = "0x70Ea24005684b8811f97352faC9B7dd2f568b196";
         
         const CORE_TESTNET = {
-            chainId: "0x45c",
+            chainId: "0x45a",
             chainName: "Core Blockchain Testnet2",
             rpcUrls: ["https://rpc.test2.btcs.network"],
             blockExplorerUrls: ["https://scan.test2.btcs.network"],
             nativeCurrency: {
-                name: "tCORE",
-                symbol: "tCORE",
+                name: "tCORE2",
+                symbol: "tCORE2",
                 decimals: 18
             }
         };
@@ -622,12 +622,12 @@
 
             // Check network before creating game
             const network = await provider.getNetwork();
-            if (network.chainId !== 1116) {
-                showAlert('Wrong network! Please switch to Core Testnet2', 'error');
+            if (network.chainId !== 1114) {
+                showAlert('Wrong network! Please switch to Core Testnet2 (ID:${expectedChainId})', 'error');
                 try {
                     await window.ethereum.request({
                         method: 'wallet_switchEthereumChain',
-                        params: [{ chainId: '0x45c' }],
+                        params: [{ chainId: CORE_TESTNET.chainId }],
                     });
                 } catch (e) {
                     console.error('Network switch failed:', e);
