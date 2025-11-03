@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>CrossRealm • On-Chain Chess on Core</title>
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <!-- Firebase SDK for Chat -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
     <style>
         * {
             margin: 0;
@@ -162,6 +165,16 @@
             box-shadow: none;
         }
 
+        .resign-btn {
+            background: var(--error);
+            margin-top: 10px;
+        }
+
+        .claim-btn {
+            background: var(--success);
+            margin-top: 10px;
+        }
+
         /* Grid Layout */
         .grid {
             display: grid;
@@ -253,6 +266,52 @@
             height: 20%;
             background: var(--success);
             border-radius: 50%;
+        }
+
+        /* Game Controls */
+        .game-controls {
+            text-align: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+        }
+
+        .game-status {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: var(--bitcoin-orange);
+        }
+
+        /* Chat Styles */
+        .chat-container {
+            height: 300px;
+            border: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            overflow-y: auto;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+
+        .chat-message {
+            margin-bottom: 10px;
+            padding: 5px;
+            border-left: 3px solid var(--bitcoin-orange);
+        }
+
+        .chat-input {
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input input {
+            flex: 1;
+        }
+
+        .chat-input button {
+            flex-shrink: 0;
+            padding: 12px 15px;
         }
 
         /* Game List */
@@ -466,6 +525,15 @@
             .grid {
                 gap: 15px;
             }
+
+            .chat-container {
+                height: 200px;
+                font-size: 14px;
+            }
+
+            .chat-input {
+                flex-direction: column;
+            }
         }
     </style>
 </head>
@@ -523,6 +591,11 @@
                         Create or join a game to play
                     </p>
                 </div>
+                <div id="gameControls" class="game-controls hidden">
+                    <div id="gameStatus" class="game-status"></div>
+                    <button id="resignBtn" class="resign-btn hidden" onclick="resignGame(currentGameId)" style="width: 100%;">Resign Game</button>
+                    <button id="claimBtn" class="claim-btn hidden" onclick="claimTimeout(currentGameId)" style="width: 100%;">Claim Timeout Win</button>
+                </div>
             </div>
 
             <!-- Available Games -->
@@ -560,6 +633,20 @@
             </div>
         </div>
 
+        <!-- Live Chat (visible during active game) -->
+        <div id="liveChatCard" class="card hidden">
+            <div class="card-header">
+                <div class="card-title">💬 Live Chat</div>
+            </div>
+            <div id="chatContainer" class="chat-container">
+                <p style="text-align: center; color: var(--text-dim);">Connect to a game to chat</p>
+            </div>
+            <div class="chat-input">
+                <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
+                <button onclick="sendChatMessage()">Send</button>
+            </div>
+        </div>
+
         <!-- Footer -->
         <div class="footer">
             <div>CrossRealm © 2025 • Built on Core Blockchain</div>
@@ -588,6 +675,21 @@
             }
         };
 
+        // Firebase Config - REPLACE WITH YOUR OWN FROM FIREBASE CONSOLE
+        const firebaseConfig = {
+            apiKey: "your-api-key",
+            authDomain: "your-project.firebaseapp.com",
+            databaseURL: "https://your-project-default-rtdb.firebaseio.com",
+            projectId: "your-project-id",
+            storageBucket: "your-project.appspot.com",
+            messagingSenderId: "123456789",
+            appId: "your-app-id"
+        };
+
+        // Initialize Firebase
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
         const CONTRACT_ABI = [
             "function createGame() payable returns (uint256)",
             "function joinGame(uint256 gameId) payable",
@@ -614,6 +716,8 @@
         let provider, signer, contract, userAddress;
         let currentGameId = null;
         let selectedSquare = null;
+        let currentGame = null;  // Store full game data
+        let chatRef = null;  // Firebase chat reference
 
         // ============ WALLET CONNECTION ============
         
@@ -684,7 +788,12 @@
             contract = null;
             userAddress = null;
             currentGameId = null;
+            currentGame = null;
             selectedSquare = null;
+            if (chatRef) {
+                chatRef.off();
+                chatRef = null;
+            }
             
             // Update UI
             document.getElementById('networkStatus').textContent = '🔴 Not Connected';
@@ -696,6 +805,8 @@
             // Clear boards and lists
             document.getElementById('chessBoardContainer').innerHTML = 
                 '<p style="text-align: center; color: var(--text-dim); padding: 40px;">Create or join a game to play</p>';
+            document.getElementById('gameControls').classList.add('hidden');
+            document.getElementById('liveChatCard').classList.add('hidden');
             document.getElementById('gamesList').innerHTML = 
                 '<p style="text-align: center; color: var(--text-dim); padding: 20px;">Connect wallet to see games</p>';
             document.getElementById('myGamesList').innerHTML = 
@@ -809,8 +920,10 @@
             if (!contract) return;
 
             try {
-                const game = await contract.getGame(gameId);
-                renderBoard(game.board, gameId, game);
+                currentGame = await contract.getGame(gameId);
+                renderBoard(currentGame.board, gameId, currentGame);
+                updateGameControls(currentGame);
+                initChat(gameId);
             } catch (error) {
                 console.error(error);
             }
@@ -823,7 +936,7 @@
                     const row = Math.floor(i / 8);
                     const col = i % 8;
                     const isLight = (row + col) % 2 === 0;
-                    const piece = PIECE_SYMBOLS[board[i]];
+                    const piece = PIECE_SYMBOLS[board[i] || 0];
                     
                     // Add touch support for mobile
                     return `<div class="chess-square ${isLight ? 'light' : 'dark'}" 
@@ -835,21 +948,58 @@
                 }).join('') + 
             '</div>';
             
+            const winnerText = game.winner === ethers.constants.AddressZero ? '' : 
+                `Winner: ${game.winner === userAddress ? 'You!' : 'Opponent'}`;
+            
             const info = `
                 <div style="margin-top: 20px; text-align: center;">
                     <div>Game #${gameId}</div>
                     <div style="margin-top: 10px;">
-                        ${game.currentTurn === userAddress ? 
+                        ${game.status === 1 ? (game.currentTurn === userAddress ? 
                             '<span style="color: var(--success);">Your Turn</span>' : 
-                            '<span style="color: var(--text-dim);">Opponent\'s Turn</span>'}
+                            '<span style="color: var(--text-dim);">Opponent\'s Turn</span>') : 
+                        `<span style="color: ${game.status === 2 ? 'var(--success)' : 'var(--error)'};">Game ${['Pending', 'Active', 'Completed', 'Cancelled'][game.status]}</span>`}
                     </div>
+                    ${winnerText ? `<div style="margin-top: 10px; font-weight: bold;">${winnerText}</div>` : ''}
                 </div>
             `;
             
             container.innerHTML = boardHTML + info;
         }
 
+        function updateGameControls(game) {
+            const controls = document.getElementById('gameControls');
+            const statusEl = document.getElementById('gameStatus');
+            const resignBtn = document.getElementById('resignBtn');
+            const claimBtn = document.getElementById('claimBtn');
+
+            controls.classList.remove('hidden');
+            statusEl.textContent = `Status: ${['Pending', 'Active', 'Completed', 'Cancelled'][game.status]}`;
+
+            // Hide buttons by default
+            resignBtn.classList.add('hidden');
+            claimBtn.classList.add('hidden');
+
+            if (game.status === 1) {  // Active game
+                // Resign button for both players
+                resignBtn.classList.remove('hidden');
+
+                // Claim timeout if it's your turn and timeout exceeded (assume 24h = 86400s)
+                const now = Math.floor(Date.now() / 1000);
+                const timeout = 86400;  // 24 hours
+                if (game.currentTurn.toLowerCase() === userAddress.toLowerCase() && 
+                    now > game.lastMoveTime.toNumber() + timeout) {
+                    claimBtn.classList.remove('hidden');
+                }
+            }
+        }
+
         async function selectSquare(square, gameId) {
+            if (!currentGame || currentGame.status !== 1 || currentGame.currentTurn.toLowerCase() !== userAddress.toLowerCase()) {
+                showAlert('Not your turn or game not active', 'error');
+                return;
+            }
+
             if (selectedSquare === null) {
                 selectedSquare = square;
                 document.querySelectorAll('.chess-square')[square].classList.add('selected');
@@ -891,6 +1041,96 @@
                 showAlert('Invalid move: ' + error.message, 'error');
             }
         }
+
+        async function resignGame(gameId) {
+            if (!contract) return;
+
+            try {
+                showAlert('Resigning game...', 'info');
+                const tx = await contract.resign(gameId, { gasLimit: 200000 });
+                await tx.wait();
+                showAlert('Game resigned. Opponent wins!', 'info');
+                setTimeout(() => loadGame(gameId), 2000);
+            } catch (error) {
+                console.error(error);
+                showAlert('Resign failed: ' + error.message, 'error');
+            }
+        }
+
+        async function claimTimeout(gameId) {
+            if (!contract) return;
+
+            try {
+                showAlert('Claiming timeout win...', 'info');
+                const tx = await contract.claimTimeout(gameId, { gasLimit: 200000 });
+                await tx.wait();
+                showAlert('Timeout claimed! You win!', 'success');
+                setTimeout(() => loadGame(gameId), 2000);
+            } catch (error) {
+                console.error(error);
+                showAlert('Claim failed: ' + error.message, 'error');
+            }
+        }
+
+        // ============ CHAT FUNCTIONS ============
+        
+        function initChat(gameId) {
+            if (!gameId) return;
+
+            // Show chat card
+            document.getElementById('liveChatCard').classList.remove('hidden');
+
+            // Set up Firebase reference
+            chatRef = database.ref('chats/' + gameId);
+            const chatContainer = document.getElementById('chatContainer');
+            chatContainer.innerHTML = '<div class="spinner" style="margin: 100px auto;"></div>';
+
+            // Listen for new messages
+            chatRef.on('child_added', (snapshot) => {
+                const msg = snapshot.val();
+                const msgEl = document.createElement('div');
+                msgEl.className = 'chat-message';
+                msgEl.innerHTML = `<strong>${msg.user.slice(0, 6)}...</strong>: ${msg.text} <small style="color: var(--text-dim);">${new Date(msg.timestamp).toLocaleTimeString()}</small>`;
+                chatContainer.appendChild(msgEl);
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            });
+
+            // Load initial messages
+            chatRef.once('value', (snapshot) => {
+                chatContainer.innerHTML = '';
+                if (snapshot.exists()) {
+                    snapshot.forEach((child) => {
+                        const msg = child.val();
+                        const msgEl = document.createElement('div');
+                        msgEl.className = 'chat-message';
+                        msgEl.innerHTML = `<strong>${msg.user.slice(0, 6)}...</strong>: ${msg.text} <small style="color: var(--text-dim);">${new Date(msg.timestamp).toLocaleTimeString()}</small>`;
+                        chatContainer.appendChild(msgEl);
+                    });
+                } else {
+                    chatContainer.innerHTML = '<p style="text-align: center; color: var(--text-dim);">No messages yet. Start the chat!</p>';
+                }
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            });
+        }
+
+        function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if (!text || !chatRef) return;
+
+            chatRef.push({
+                user: userAddress,
+                text: text,
+                timestamp: firebase.database.ServerValue.TIMESTAMP
+            });
+
+            input.value = '';
+        }
+
+        // Enter key to send message
+        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendChatMessage();
+        });
 
         async function loadPendingGames() {
             if (!contract) return;
@@ -999,7 +1239,9 @@
             if (contract) {
                 loadPendingGames();
                 loadMyGames();
-                if (currentGameId) loadGame(currentGameId);
+                if (currentGameId && currentGame) {
+                    loadGame(currentGameId);  // Reload to update status
+                }
             }
         }, 15000);
     </script>
