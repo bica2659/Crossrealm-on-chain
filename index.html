@@ -25,6 +25,8 @@
             --text-dim: #999;
             --success: #00c851;
             --error: #ff4444;
+            --chess-white: #f0d9b5;
+            --chess-black: #b58863;
         }
 
         body {
@@ -217,13 +219,18 @@
             color: var(--bitcoin-orange);
         }
 
-        /* Chess Board */
+        /* Chess Board Container */
+        .chess-board-wrapper {
+            display: flex;
+            justify-content: center;
+            position: relative;
+        }
+
         .chess-board {
             display: grid;
             grid-template-columns: repeat(8, 1fr);
             gap: 0;
             max-width: 600px;
-            margin: 0 auto;
             border: 3px solid var(--bitcoin-orange);
             aspect-ratio: 1;
         }
@@ -241,15 +248,16 @@
         }
 
         .chess-square.light {
-            background: #3a3a3a;
+            background: var(--chess-white);
         }
 
         .chess-square.dark {
-            background: #1a1a1a;
+            background: var(--chess-black);
         }
 
         .chess-square:hover {
             background: rgba(247, 147, 26, 0.2);
+            filter: brightness(1.1);
         }
 
         .chess-square.selected {
@@ -258,16 +266,60 @@
         }
 
         .chess-square.valid-move {
-            background: rgba(0, 200, 81, 0.3);
+            background: rgba(0, 200, 81, 0.4);
         }
 
         .chess-square.valid-move::after {
             content: '';
             position: absolute;
-            width: 20%;
-            height: 20%;
+            width: 40%;
+            height: 40%;
             background: var(--success);
             border-radius: 50%;
+            opacity: 0.7;
+        }
+
+        /* Board Labels (a-h, 1-8) */
+        .board-labels {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 5px;
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--bitcoin-orange);
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+
+        .file-labels {
+            display: flex;
+            justify-content: space-around;
+            width: 100%;
+            margin-bottom: 5px;
+        }
+
+        .rank-labels {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            height: 100%;
+            position: absolute;
+            left: -30px;
+            top: 0;
+            font-size: 12px;
+        }
+
+        .file-label {
+            flex: 1;
+            text-align: center;
+        }
+
+        .rank-label {
+            height: 12.5%; /* 1/8 */
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            writing-mode: vertical-rl;
         }
 
         /* Game Controls */
@@ -516,6 +568,14 @@
             .chess-square {
                 min-height: 40px;
                 min-width: 40px;
+            }
+
+            .rank-labels {
+                left: -20px;
+            }
+
+            .file-labels {
+                font-size: 12px;
             }
 
             button {
@@ -942,21 +1002,31 @@
 
         function renderBoard(board, gameId, game) {
             const container = document.getElementById('chessBoardContainer');
-            const boardHTML = '<div class="chess-board">' + 
-                Array.from({ length: 64 }, (_, i) => {
-                    const row = Math.floor(i / 8);
-                    const col = i % 8;
-                    const isLight = (row + col) % 2 === 0;
-                    const piece = PIECE_SYMBOLS[board[i] || 0];
-                    
-                    // Add touch support for mobile
-                    return `<div class="chess-square ${isLight ? 'light' : 'dark'}" 
-                                 onclick="selectSquare(${i}, ${gameId})" 
-                                 ontouchstart="selectSquare(${i}, ${gameId})"
-                                 data-square="${i}">
-                                ${piece}
-                            </div>`;
-                }).join('') + 
+            const boardHTML = '<div class="chess-board-wrapper">' +
+                '<div class="rank-labels">' +
+                    Array.from({length: 8}, (_, i) => `<div class="rank-label">${8 - i}</div>`).join('') +
+                '</div>' +
+                '<div class="chess-board">' + 
+                    Array.from({ length: 64 }, (_, i) => {
+                        const row = Math.floor(i / 8);
+                        const col = i % 8;
+                        const isLight = (row + col) % 2 === 0;
+                        const piece = PIECE_SYMBOLS[board[i] || 0];
+                        
+                        // Add touch support for mobile
+                        return `<div class="chess-square ${isLight ? 'light' : 'dark'}" 
+                                     onclick="selectSquare(${i}, ${gameId})" 
+                                     ontouchstart="selectSquare(${i}, ${gameId})"
+                                     data-square="${i}">
+                                    ${piece}
+                                </div>`;
+                    }).join('') + 
+                '</div>' +
+                '<div class="board-labels">' +
+                    '<div class="file-labels">' +
+                        'a b c d e f g h'.split(' ').map(letter => `<span class="file-label">${letter}</span>`).join('') +
+                    '</div>' +
+                '</div>' +
             '</div>';
             
             const winnerText = game.winner === ethers.constants.AddressZero ? '' : 
@@ -1026,6 +1096,7 @@
             if (selectedSquare === null) {
                 selectedSquare = square;
                 document.querySelectorAll('.chess-square')[square].classList.add('selected');
+                // TODO: Highlight valid moves from this square (requires chess logic)
             } else {
                 if (selectedSquare === square) {
                     document.querySelectorAll('.chess-square')[square].classList.remove('selected');
