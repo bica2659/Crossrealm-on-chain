@@ -165,13 +165,15 @@
             box-shadow: none;
         }
 
-        .resign-btn {
-            background: var(--error);
-            margin-top: 10px;
+        .disconnect-btn, .resign-btn {
+            background: linear-gradient(135deg, var(--bitcoin-orange), var(--burnt-orange));
+            color: var(--error);
+            text-shadow: 0 0 5px rgba(255, 68, 68, 0.8); /* Red glow */
         }
 
         .claim-btn {
             background: var(--success);
+            color: #000;
             margin-top: 10px;
         }
 
@@ -285,12 +287,12 @@
 
         /* Chat Styles */
         .chat-container {
-            height: 300px;
+            height: 200px;
             border: 1px solid var(--border);
             background: rgba(0, 0, 0, 0.5);
             padding: 10px;
             overflow-y: auto;
-            margin-bottom: 10px;
+            margin-top: 15px;
             font-size: 12px;
         }
 
@@ -303,6 +305,7 @@
         .chat-input {
             display: flex;
             gap: 10px;
+            margin-top: 10px;
         }
 
         .chat-input input {
@@ -527,7 +530,7 @@
             }
 
             .chat-container {
-                height: 200px;
+                height: 150px;
                 font-size: 14px;
             }
 
@@ -551,7 +554,7 @@
                 </div>
                 <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
                     <button id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
-                    <button id="disconnectBtn" onclick="disconnectWallet()" style="display: none; background: var(--error); padding: 12px 20px;">Disconnect</button>
+                    <button id="disconnectBtn" class="disconnect-btn" onclick="disconnectWallet()" style="display: none; padding: 12px 20px;">Disconnect</button>
                 </div>
             </div>
         </div>
@@ -596,6 +599,19 @@
                     <button id="resignBtn" class="resign-btn hidden" onclick="resignGame(currentGameId)" style="width: 100%;">Resign Game</button>
                     <button id="claimBtn" class="claim-btn hidden" onclick="claimTimeout(currentGameId)" style="width: 100%;">Claim Timeout Win</button>
                 </div>
+                <!-- Live Chat Integrated in Game Board -->
+                <div id="liveChatSection" class="hidden">
+                    <div class="card-header" style="margin-top: 20px;">
+                        <div class="card-title">💬 Live Chat</div>
+                    </div>
+                    <div id="chatContainer" class="chat-container">
+                        <p style="text-align: center; color: var(--text-dim);">Chat loading...</p>
+                    </div>
+                    <div class="chat-input">
+                        <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
+                        <button onclick="sendChatMessage()">Send</button>
+                    </div>
+                </div>
             </div>
 
             <!-- Available Games -->
@@ -630,20 +646,6 @@
                 <p style="text-align: center; color: var(--text-dim);">
                     Connect wallet to see your games
                 </p>
-            </div>
-        </div>
-
-        <!-- Live Chat (visible during active game) -->
-        <div id="liveChatCard" class="card hidden">
-            <div class="card-header">
-                <div class="card-title">💬 Live Chat</div>
-            </div>
-            <div id="chatContainer" class="chat-container">
-                <p style="text-align: center; color: var(--text-dim);">Connect to a game to chat</p>
-            </div>
-            <div class="chat-input">
-                <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
-                <button onclick="sendChatMessage()">Send</button>
             </div>
         </div>
 
@@ -806,7 +808,7 @@
             document.getElementById('chessBoardContainer').innerHTML = 
                 '<p style="text-align: center; color: var(--text-dim); padding: 40px;">Create or join a game to play</p>';
             document.getElementById('gameControls').classList.add('hidden');
-            document.getElementById('liveChatCard').classList.add('hidden');
+            document.getElementById('liveChatSection').classList.add('hidden');
             document.getElementById('gamesList').innerHTML = 
                 '<p style="text-align: center; color: var(--text-dim); padding: 20px;">Connect wallet to see games</p>';
             document.getElementById('myGamesList').innerHTML = 
@@ -920,6 +922,7 @@
             if (!contract) return;
 
             try {
+                currentGameId = gameId;  // Fix: Set currentGameId for resign/claim
                 currentGame = await contract.getGame(gameId);
                 renderBoard(currentGame.board, gameId, currentGame);
                 updateGameControls(currentGame);
@@ -1043,7 +1046,10 @@
         }
 
         async function resignGame(gameId) {
-            if (!contract) return;
+            if (!contract || !gameId) {
+                showAlert('No active game selected', 'error');
+                return;
+            }
 
             try {
                 showAlert('Resigning game...', 'info');
@@ -1053,12 +1059,15 @@
                 setTimeout(() => loadGame(gameId), 2000);
             } catch (error) {
                 console.error(error);
-                showAlert('Resign failed: ' + error.message, 'error');
+                showAlert('Resign failed: ' + (error.reason || error.message), 'error');
             }
         }
 
         async function claimTimeout(gameId) {
-            if (!contract) return;
+            if (!contract || !gameId) {
+                showAlert('No active game selected', 'error');
+                return;
+            }
 
             try {
                 showAlert('Claiming timeout win...', 'info');
@@ -1068,7 +1077,7 @@
                 setTimeout(() => loadGame(gameId), 2000);
             } catch (error) {
                 console.error(error);
-                showAlert('Claim failed: ' + error.message, 'error');
+                showAlert('Claim failed: ' + (error.reason || error.message), 'error');
             }
         }
 
@@ -1077,13 +1086,14 @@
         function initChat(gameId) {
             if (!gameId) return;
 
-            // Show chat card
-            document.getElementById('liveChatCard').classList.remove('hidden');
+            // Show chat section
+            document.getElementById('liveChatSection').classList.remove('hidden');
 
             // Set up Firebase reference
+            if (chatRef) chatRef.off();
             chatRef = database.ref('chats/' + gameId);
             const chatContainer = document.getElementById('chatContainer');
-            chatContainer.innerHTML = '<div class="spinner" style="margin: 100px auto;"></div>';
+            chatContainer.innerHTML = '<div class="spinner" style="margin: 80px auto;"></div>';
 
             // Listen for new messages
             chatRef.on('child_added', (snapshot) => {
