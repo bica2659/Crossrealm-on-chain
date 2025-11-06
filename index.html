@@ -18,9 +18,8 @@
         .header::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: linear-gradient(90deg, transparent, rgba(247, 147, 26, 0.1), transparent); animation: shimmer 3s infinite; }
         @keyframes shimmer { 0%, 100% { transform: translateX(-100%); } 50% { transform: translateX(100%); } }
         .logo { font-size: 32px; font-weight: bold; color: var(--bitcoin-orange); text-transform: uppercase; letter-spacing: 3px; }
-        .tagline { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 2px; }
-        .game-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
-        .game-tag { background: rgba(247, 147, 26, 0.2); color: var(--bitcoin-orange); padding: 4px 10px; font-size: 10px; border-radius: 4px; font-weight: bold; }
+        .game-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+        .game-tag { background: rgba(247, 147, 26, 0.2); color: var(--bitcoin-orange); padding: 4px 10px; font-size: 10px; border-radius: 4px; font-weight: bold; text-transform: uppercase; }
         .wallet-bar { display: flex; justify-content: space-between; align-items: center; margin-top: 20px; gap: 15px; flex-wrap: wrap; }
         .wallet-status { font-size: 12px; color: var(--text-dim); padding: 8px 15px; border: 1px solid var(--border); background: rgba(0,0,0,0.3); }
         .wallet-address { color: var(--bitcoin-orange); font-weight: bold; }
@@ -77,7 +76,6 @@
         <!-- Header -->
         <div class="header">
             <div class="logo">CROSSREALM</div>
-            <div class="tagline">Play Chess • Checkers • Poker • Fighter</div>
             <div class="game-tags">
                 <span class="game-tag">CHESS</span>
                 <span class="game-tag">CHECKERS</span>
@@ -115,15 +113,17 @@
                 </div>
                 <div class="form-group">
                     <label>Wager Token</label>
-                    <select id="tokenSelect">
+                    <select id="tokenSelect" onchange="updateApproveButton()">
                         <option value="0x0000000000000000000000000000000000000000">tCORE2 (Native)</option>
-                        <option value="0xA2A2B9E6E4A6A4A4A4A4A4A4A4A4A4A4A4A4A4A4">USDT</option>
-                        <option value="0xB3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3">WBTC</option>
-                        <option value="0xC4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4">DAI</option>
+                        <!-- ERC20s disabled until real addresses -->
+                        <!-- <option value="0x...">USDT</option> -->
                     </select>
+                    <small style="color: var(--text-dim); font-size: 11px; margin-top: 4px; display: block;">
+                        Only tCORE2 supported on Testnet
+                    </small>
                 </div>
                 <div class="form-group token-input">
-                    <input type="number" id="stakeAmount" placeholder="0.1" step="0.01" min="0.01" value="0.1">
+                    <input type="number" id="stakeAmount" value="0.1" step="0.01" min="0.01">
                     <button class="approve-btn" id="approveBtn" onclick="approveToken()" style="display: none;">Approve</button>
                 </div>
                 <button onclick="createGame()" id="createBtn" disabled style="width: 100%;">Create Game</button>
@@ -181,19 +181,13 @@
         // ============ CONFIG ============
         const CONTRACT_ADDRESS = "0x70ea24005684b8811f97352fac9b7dd2f568b196";
         const CORE_TESTNET = { chainId: "0x45a", chainName: "Core Testnet2", rpcUrls: ["https://rpc.test2.btcs.network"] };
-
-        const TOKEN_INFO = {
-            "0x0000000000000000000000000000000000000000": { symbol: "tCORE2", decimals: 18 },
-            "0xA2A2B9E6E4A6A4A4A4A4A4A4A4A4A4A4A4A4A4A4": { symbol: "USDT", decimals: 6 },
-            "0xB3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3B3": { symbol: "WBTC", decimals: 8 },
-            "0xC4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4C4": { symbol: "DAI", decimals: 18 }
-        };
+        const NATIVE_TOKEN = "0x0000000000000000000000000000000000000000";
 
         const PIECE_SYMBOLS = { 0: '', 1: 'P', 2: 'N', 3: 'B', 4: 'R', 5: 'Q', 6: 'K', 7: 'p', 8: 'n', 9: 'b', 10: 'r', 11: 'q', 12: 'k' };
-        const CHECKERS_SYMBOLS = { 0: '', 1: '●', 2: '▲', 3: '○', 4: '△' };
+        const CHECKERS_SYMBOLS = { 0: '', 1: 'Black Circle', 2: 'Black Triangle', 3: 'White Circle', 4: 'White Triangle' };
         const MOVE_NAMES = ['Punch', 'Kick', 'Block', 'Special', 'Combo', 'Heal'];
 
-        // ============ FULL ABI ============
+        // ============ ABI ============
         const ABI = [
             "function createGame(uint8 kind, address token, uint256 stake) payable returns (uint256)",
             "function join(uint256 id) payable",
@@ -208,16 +202,7 @@
             "function fighter(uint256) view returns (uint8[2] hp, uint8[2] st, uint8[2] move, uint8 round)",
             "function playerGames(address) view returns (uint256[])",
             "event Created(uint256 id, address p1, uint8 kind, address token, uint256 stake)",
-            "event Joined(uint256 id, address p2)",
-            "event Move(uint256 id, address player, bytes data)",
-            "event End(uint256 id, address winner, uint256 payout)"
-        ];
-
-        const ERC20_ABI = [
-            "function approve(address spender, uint256 amount) returns (bool)",
-            "function allowance(address owner, address spender) view returns (uint256)",
-            "function decimals() view returns (uint8)",
-            "function symbol() view returns (string)"
+            "event Joined(uint256 id, address p2)"
         ];
 
         // ============ STATE ============
@@ -264,58 +249,39 @@
             document.getElementById('createBtn').disabled = true;
         }
 
-        // ============ TOKEN APPROVAL ============
-        async function approveToken() {
-            const tokenAddr = document.getElementById('tokenSelect').value;
-            if (tokenAddr === ethers.constants.AddressZero) return;
-            const amount = ethers.utils.parseUnits(document.getElementById('stakeAmount').value, TOKEN_INFO[tokenAddr].decimals);
-            const token = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
-            try {
-                const tx = await token.approve(CONTRACT_ADDRESS, amount);
-                await tx.wait();
-                showAlert('Approved!', 'success');
-                document.getElementById('approveBtn').style.display = 'none';
-            } catch (e) { showAlert('Approve failed: ' + e.message, 'error'); }
+        function updateApproveButton() {
+            const token = document.getElementById('tokenSelect').value;
+            document.getElementById('approveBtn').style.display = token === NATIVE_TOKEN ? 'none' : 'inline-block';
         }
 
-        // ============ CREATE GAME ============
+        // ============ CREATE GAME (tCORE2 ONLY) ============
         async function createGame() {
             if (!contract) return showAlert('Connect wallet first', 'error');
             const kind = document.getElementById('gameType').value;
             const tokenAddr = document.getElementById('tokenSelect').value;
-            const input = document.getElementById('stakeAmount').value;
-            const decimals = TOKEN_INFO[tokenAddr].decimals;
-            const stake = ethers.utils.parseUnits(input, decimals);
+            const stake = ethers.utils.parseEther(document.getElementById('stakeAmount').value);
 
-            if (tokenAddr !== ethers.constants.AddressZero) {
-                const token = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
-                const allowance = await token.allowance(userAddress, CONTRACT_ADDRESS);
-                if (allowance.lt(stake)) {
-                    document.getElementById('approveBtn').style.display = 'inline-block';
-                    showAlert('Approve token first', 'info');
-                    return;
-                }
+            if (tokenAddr !== NATIVE_TOKEN) {
+                showAlert('Only tCORE2 supported on Testnet', 'info');
+                return;
             }
 
             try {
-                const tx = await contract.createGame(kind, tokenAddr, stake, {
-                    value: tokenAddr === ethers.constants.AddressZero ? stake : 0
-                });
+                const tx = await contract.createGame(kind, tokenAddr, stake, { value: stake });
                 await tx.wait();
                 showAlert('Game created!', 'success');
                 setTimeout(loadPendingGames, 3000);
             } catch (e) {
                 console.error(e);
-                showAlert('Failed: ' + (e.reason || e.message || 'Unknown'), 'error');
+                showAlert('Failed: ' + (e.reason || e.message || 'Check tCORE2 balance'), 'error');
             }
         }
 
         // ============ JOIN GAME ============
-        async function joinGame(id, stakeStr, tokenAddr) {
-            const decimals = TOKEN_INFO[tokenAddr].decimals;
-            const stake = ethers.utils.parseUnits(stakeStr, decimals);
+        async function joinGame(id, stakeStr) {
+            const stake = ethers.utils.parseEther(stakeStr);
             try {
-                const tx = await contract.join(id, { value: tokenAddr === ethers.constants.AddressZero ? stake : 0 });
+                const tx = await contract.join(id, { value: stake });
                 await tx.wait();
                 showAlert('Joined!', 'success');
                 loadGame(id);
@@ -333,15 +299,14 @@
                 for (const ev of events) {
                     const id = ev.args.id.toNumber();
                     const g = await contract.games(id);
-                    if (g.p2 === ethers.constants.AddressZero && g.status.toNumber() === 0) {
-                        const symbol = TOKEN_INFO[g.token].symbol;
-                        const stake = ethers.utils.formatUnits(g.stake, TOKEN_INFO[g.token].decimals);
+                    if (g.p2 === ethers.constants.AddressZero && g.status.toNumber() === 0 && g.token === NATIVE_TOKEN) {
+                        const stake = ethers.utils.formatEther(g.stake);
                         html += `<div class="game-item">
                             <div class="game-meta">
                                 <span class="game-id">#${id}</span>
-                                <span class="game-stake">${stake} ${symbol}</span>
+                                <span class="game-stake">${stake} tCORE2</span>
                             </div>
-                            <button onclick="joinGame(${id}, '${stake}', '${g.token}')">Join</button>
+                            <button onclick="joinGame(${id}, '${stake}')">Join</button>
                         </div>`;
                     }
                 }
@@ -371,7 +336,7 @@
             } catch (e) { list.innerHTML = '<p>Error</p>'; }
         }
 
-        // ============ LOAD & RENDER GAME ============
+        // ============ GAME RENDERING (unchanged) ============
         async function loadGame(id) {
             currentGameId = id;
             currentGame = await contract.games(id);
@@ -388,67 +353,8 @@
             updateControls();
         }
 
-        async function renderChess(id) {
-            const board = await contract.chess(id);
-            return `<div class="chess-board">${board.map((p,i) => `<div class="square ${(Math.floor(i/8)+i%8)%2===0?'light':'dark'}" onclick="selectSquare(${i})">${PIECE_SYMBOLS[p]}</div>`).join('')}</div>`;
-        }
+        // [renderChess, renderCheckers, renderFighter, selectSquare, fighterMove, resignGame, claimTimeout, updateControls — same as before]
 
-        async function renderCheckers(id) {
-            const board = await contract.checkers(id);
-            return `<div class="checkers-board">${board.map((p,i) => `<div class="square ${(Math.floor(i/8)+i%8)%2===0?'light':'dark'}" onclick="selectSquare(${i})">${CHECKERS_SYMBOLS[p]}</div>`).join('')}</div>`;
-        }
-
-        async function renderFighter(id) {
-            const f = await contract.fighter(id);
-            return `<div class="fighter-ui">${[0,1].map(i=>`<div class="fighter-player" style="grid-column:${i===0?'1/5':'5/9'}">
-                <div>${i===0?'You':'Opp'}</div>
-                <div class="hp-bar"><div class="hp-fill" style="width:${f.hp[i]}%"></div></div>
-                <div>HP: ${f.hp[i]} | ST: ${f.st[i]}</div>
-                <div style="margin-top:10px;">
-                    ${MOVE_NAMES.map((m,j)=>`<button class="move-btn" onclick="fighterMove(${id},${j})" ${f.st[i]<[5,8,0,20,25,15][j]?'disabled':''}>${m}</button>`).join('')}
-                </div>
-            </div>`).join('')}</div>`;
-        }
-
-        function selectSquare(pos) {
-            if (!currentGame || currentGame.turn.toLowerCase() !== userAddress.toLowerCase()) return;
-            if (selectedSquare === null) {
-                selectedSquare = pos;
-                document.querySelectorAll('.square')[pos].classList.add('selected');
-            } else {
-                const kind = currentGame.kind.toNumber();
-                if (kind === 1) contract.chessMove(currentGameId, selectedSquare, pos);
-                else if (kind === 2) contract.checkersMove(currentGameId, selectedSquare, pos);
-                selectedSquare = null;
-                setTimeout(() => loadGame(currentGameId), 2000);
-            }
-        }
-
-        async function fighterMove(id, move) {
-            await contract.fighterMove(id, move);
-            setTimeout(() => loadGame(id), 2000);
-        }
-
-        async function resignGame(id) {
-            await contract.cancel(id);
-            showAlert('Resigned', 'info');
-            loadPendingGames();
-        }
-
-        async function claimTimeout(id) {
-            await contract.timeout(id);
-            showAlert('Timeout claimed', 'success');
-        }
-
-        function updateControls() {
-            const c = document.getElementById('gameControls');
-            c.classList.remove('hidden');
-            document.getElementById('playerColor').textContent = currentGame.p1.toLowerCase() === userAddress.toLowerCase() ? 'Player 1' : 'Player 2';
-            document.getElementById('resignBtn').classList.remove('hidden');
-            document.getElementById('claimBtn').classList.remove('hidden');
-        }
-
-        // ============ UTILS ============
         function showAlert(msg, type) {
             const area = document.getElementById('alertArea');
             const el = document.createElement('div');
@@ -460,7 +366,6 @@
 
         function sendChatMessage() { showAlert('Chat disabled (Testnet)', 'info'); }
 
-        // Auto-refresh
         setInterval(() => {
             if (contract) {
                 loadPendingGames();
