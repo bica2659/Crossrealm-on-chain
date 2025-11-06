@@ -193,9 +193,32 @@
         const CHECKERS_SYMBOLS = { 0: '', 1: '●', 2: '▲', 3: '○', 4: '△' };
         const MOVE_NAMES = ['Punch', 'Kick', 'Block', 'Special', 'Combo', 'Heal'];
 
-        // ============ ABI ============
-        const ABI = [ /* same as before */ ];
-        const ERC20_ABI = ["function approve(address,uint256) returns (bool)", "function allowance(address,address) view returns (uint256)", "function decimals() view returns (uint8)", "function symbol() view returns (string)"];
+        // ============ FULL ABI ============
+        const ABI = [
+            "function createGame(uint8 kind, address token, uint256 stake) payable returns (uint256)",
+            "function join(uint256 id) payable",
+            "function chessMove(uint256 id, uint8 from, uint8 to)",
+            "function checkersMove(uint256 id, uint8 from, uint8 to)",
+            "function fighterMove(uint256 id, uint8 move)",
+            "function cancel(uint256 id)",
+            "function timeout(uint256 id)",
+            "function games(uint256) view returns (address p1, address p2, uint256 stake, address token, address turn, uint16 moves, uint256 lastMove, address winner, uint8 status, uint8 kind, uint256 seed)",
+            "function chess(uint256) view returns (uint8[64] board)",
+            "function checkers(uint256) view returns (uint8[64] board)",
+            "function fighter(uint256) view returns (uint8[2] hp, uint8[2] st, uint8[2] move, uint8 round)",
+            "function playerGames(address) view returns (uint256[])",
+            "event Created(uint256 id, address p1, uint8 kind, address token, uint256 stake)",
+            "event Joined(uint256 id, address p2)",
+            "event Move(uint256 id, address player, bytes data)",
+            "event End(uint256 id, address winner, uint256 payout)"
+        ];
+
+        const ERC20_ABI = [
+            "function approve(address spender, uint256 amount) returns (bool)",
+            "function allowance(address owner, address spender) view returns (uint256)",
+            "function decimals() view returns (uint8)",
+            "function symbol() view returns (string)"
+        ];
 
         // ============ STATE ============
         let provider, signer, contract, userAddress;
@@ -225,7 +248,8 @@
                 document.getElementById('createBtn').disabled = false;
 
                 showAlert('Connected!', 'success');
-                loadPendingGames(); loadMyGames();
+                loadPendingGames();
+                loadMyGames();
             } catch (e) {
                 showAlert('Failed: ' + (e.message || 'Unknown'), 'error');
             }
@@ -240,7 +264,7 @@
             document.getElementById('createBtn').disabled = true;
         }
 
-        // ============ APPROVE TOKEN ============
+        // ============ TOKEN APPROVAL ============
         async function approveToken() {
             const tokenAddr = document.getElementById('tokenSelect').value;
             if (tokenAddr === ethers.constants.AddressZero) return;
@@ -251,11 +275,12 @@
                 await tx.wait();
                 showAlert('Approved!', 'success');
                 document.getElementById('approveBtn').style.display = 'none';
-            } catch (e) { showAlert('Approve failed', 'error'); }
+            } catch (e) { showAlert('Approve failed: ' + e.message, 'error'); }
         }
 
         // ============ CREATE GAME ============
         async function createGame() {
+            if (!contract) return showAlert('Connect wallet first', 'error');
             const kind = document.getElementById('gameType').value;
             const tokenAddr = document.getElementById('tokenSelect').value;
             const input = document.getElementById('stakeAmount').value;
@@ -281,24 +306,149 @@
                 setTimeout(loadPendingGames, 3000);
             } catch (e) {
                 console.error(e);
-                showAlert('Failed: ' + (e.reason || e.message), 'error');
+                showAlert('Failed: ' + (e.reason || e.message || 'Unknown'), 'error');
             }
         }
 
-        // ============ JOIN, LOAD, RENDER (same as before) ============
-        async function joinGame(id, stake, tokenAddr) {
+        // ============ JOIN GAME ============
+        async function joinGame(id, stakeStr, tokenAddr) {
             const decimals = TOKEN_INFO[tokenAddr].decimals;
-            const value = tokenAddr === ethers.constants.AddressZero ? ethers.utils.parseUnits(stake, decimals) : 0;
+            const stake = ethers.utils.parseUnits(stakeStr, decimals);
             try {
-                const tx = await contract.join(id, { value });
+                const tx = await contract.join(id, { value: tokenAddr === ethers.constants.AddressZero ? stake : 0 });
                 await tx.wait();
                 showAlert('Joined!', 'success');
                 loadGame(id);
             } catch (e) { showAlert('Failed: ' + e.message, 'error'); }
         }
 
-        // [Rest of functions: loadGame, renderChess, etc. — unchanged]
+        // ============ LOAD GAMES ============
+        async function loadPendingGames() {
+            const list = document.getElementById('gamesList');
+            list.innerHTML = '<div class="spinner"></div>';
+            try {
+                const filter = contract.filters.Created();
+                const events = await contract.queryFilter(filter, -10000);
+                let html = '';
+                for (const ev of events) {
+                    const id = ev.args.id.toNumber();
+                    const g = await contract.games(id);
+                    if (g.p2 === ethers.constants.AddressZero && g.status.toNumber() === 0) {
+                        const symbol = TOKEN_INFO[g.token].symbol;
+                        const stake = ethers.utils.formatUnits(g.stake, TOKEN_INFO[g.token].decimals);
+                        html += `<div class="game-item">
+                            <div class="game-meta">
+                                <span class="game-id">#${id}</span>
+                                <span class="game-stake">${stake} ${symbol}</span>
+                            </div>
+                            <button onclick="joinGame(${id}, '${stake}', '${g.token}')">Join</button>
+                        </div>`;
+                    }
+                }
+                list.innerHTML = html || '<p>No open games</p>';
+            } catch (e) { list.innerHTML = '<p>Error loading games</p>'; }
+        }
 
+        async function loadMyGames() {
+            const list = document.getElementById('myGamesList');
+            if (!userAddress) { list.innerHTML = '<p>Connect wallet</p>'; return; }
+            list.innerHTML = '<div class="spinner"></div>';
+            try {
+                const ids = await contract.playerGames(userAddress);
+                let html = '';
+                for (const id of ids) {
+                    const g = await contract.games(id);
+                    const kind = ['','Chess','Checkers','Poker','Fighter'][g.kind];
+                    html += `<div class="game-item">
+                        <div class="game-meta">
+                            <span class="game-id">#${id}</span>
+                            <span>${kind}</span>
+                        </div>
+                        <button onclick="loadGame(${id})">View</button>
+                    </div>`;
+                }
+                list.innerHTML = html || '<p>No games</p>';
+            } catch (e) { list.innerHTML = '<p>Error</p>'; }
+        }
+
+        // ============ LOAD & RENDER GAME ============
+        async function loadGame(id) {
+            currentGameId = id;
+            currentGame = await contract.games(id);
+            const kind = currentGame.kind.toNumber();
+            document.getElementById('boardTitle').textContent = ['','Chess','Checkers','Poker','Fighter'][kind];
+
+            let html = '';
+            if (kind === 1) html = await renderChess(id);
+            else if (kind === 2) html = await renderCheckers(id);
+            else if (kind === 4) html = await renderFighter(id);
+            else html = '<p>Game not implemented</p>';
+
+            document.getElementById('gameContainer').innerHTML = html;
+            updateControls();
+        }
+
+        async function renderChess(id) {
+            const board = await contract.chess(id);
+            return `<div class="chess-board">${board.map((p,i) => `<div class="square ${(Math.floor(i/8)+i%8)%2===0?'light':'dark'}" onclick="selectSquare(${i})">${PIECE_SYMBOLS[p]}</div>`).join('')}</div>`;
+        }
+
+        async function renderCheckers(id) {
+            const board = await contract.checkers(id);
+            return `<div class="checkers-board">${board.map((p,i) => `<div class="square ${(Math.floor(i/8)+i%8)%2===0?'light':'dark'}" onclick="selectSquare(${i})">${CHECKERS_SYMBOLS[p]}</div>`).join('')}</div>`;
+        }
+
+        async function renderFighter(id) {
+            const f = await contract.fighter(id);
+            return `<div class="fighter-ui">${[0,1].map(i=>`<div class="fighter-player" style="grid-column:${i===0?'1/5':'5/9'}">
+                <div>${i===0?'You':'Opp'}</div>
+                <div class="hp-bar"><div class="hp-fill" style="width:${f.hp[i]}%"></div></div>
+                <div>HP: ${f.hp[i]} | ST: ${f.st[i]}</div>
+                <div style="margin-top:10px;">
+                    ${MOVE_NAMES.map((m,j)=>`<button class="move-btn" onclick="fighterMove(${id},${j})" ${f.st[i]<[5,8,0,20,25,15][j]?'disabled':''}>${m}</button>`).join('')}
+                </div>
+            </div>`).join('')}</div>`;
+        }
+
+        function selectSquare(pos) {
+            if (!currentGame || currentGame.turn.toLowerCase() !== userAddress.toLowerCase()) return;
+            if (selectedSquare === null) {
+                selectedSquare = pos;
+                document.querySelectorAll('.square')[pos].classList.add('selected');
+            } else {
+                const kind = currentGame.kind.toNumber();
+                if (kind === 1) contract.chessMove(currentGameId, selectedSquare, pos);
+                else if (kind === 2) contract.checkersMove(currentGameId, selectedSquare, pos);
+                selectedSquare = null;
+                setTimeout(() => loadGame(currentGameId), 2000);
+            }
+        }
+
+        async function fighterMove(id, move) {
+            await contract.fighterMove(id, move);
+            setTimeout(() => loadGame(id), 2000);
+        }
+
+        async function resignGame(id) {
+            await contract.cancel(id);
+            showAlert('Resigned', 'info');
+            loadPendingGames();
+        }
+
+        async function claimTimeout(id) {
+            await contract.timeout(id);
+            showAlert('Timeout claimed', 'success');
+        }
+
+        function updateControls() {
+            const c = document.getElementById('gameControls');
+            c.classList.remove('hidden');
+            document.getElementById('playerColor').textContent = currentGame.p1.toLowerCase() === userAddress.toLowerCase() ? 'Player 1' : 'Player 2';
+            document.getElementById('resignBtn').classList.remove('hidden');
+            document.getElementById('claimBtn').classList.remove('hidden');
+        }
+
+        // ============ UTILS ============
         function showAlert(msg, type) {
             const area = document.getElementById('alertArea');
             const el = document.createElement('div');
@@ -310,7 +460,14 @@
 
         function sendChatMessage() { showAlert('Chat disabled (Testnet)', 'info'); }
 
-        setInterval(() => { if (contract) { loadPendingGames(); loadMyGames(); if (currentGameId) loadGame(currentGameId); } }, 15000);
+        // Auto-refresh
+        setInterval(() => {
+            if (contract) {
+                loadPendingGames();
+                loadMyGames();
+                if (currentGameId) loadGame(currentGameId);
+            }
+        }, 15000);
     </script>
 </body>
 </html>
