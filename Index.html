@@ -4,13 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
     <title>CrossRealm • On-Chain Checkers & Chess on Core</title>
-    <script src="https://cdn.ethers.io/lib/ethers-5.7.2.umd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
+    <!-- Firebase SDK for Chat (kept for rollback; replace with Hub events later) -->
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
     <style>
-        /* Bitcoin/Core Theme */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
         :root {
-            --bitcoin-orange: #f7931a; /* Primary */
-            --core-green: #00ff88; /* Accents */
+            --bitcoin-orange: #f7931a;
             --burnt-orange: #cc6600;
+            --core-green: #00ff88; /* Core accent */
             --dark-bg: #0f0f0f;
             --card-bg: #1a1a1a;
             --border: #2a2a2a;
@@ -21,129 +28,765 @@
             --gradient-primary: linear-gradient(135deg, var(--bitcoin-orange), var(--burnt-orange));
             --gradient-success: linear-gradient(135deg, var(--core-green), #00cc6a);
         }
-        body { font-family: 'Courier New', monospace; background: var(--dark-bg); color: var(--text); padding: 0; margin: 0; }
-        /* Mobile: Touch-friendly, responsive boards */
-        @media (max-width: 768px) {
-            .game-selector { flex-direction: column; gap: 0.5rem; }
-            .game-board { max-width: 100vw; transform: rotate(0deg); } /* Portrait stack */
-            .chess-board, .checkers-board { width: 90vw; height: 90vw; font-size: 2rem; } /* Scale */
-            .chess-square, .checkers-square { min-height: 11.1vw; /* 10x10 */ }
+        body {
+            font-family: 'Courier New', Courier, monospace;
+            background: var(--dark-bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 20px;
+            background-image:
+                repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(247, 147, 26, 0.03) 2px, rgba(247, 147, 26, 0.03) 4px);
         }
-        @media (orientation: landscape) { .game-board { flex-direction: row; } }
-        /* Rest of your CSS... (header, cards, buttons with new colors) */
-        button { background: var(--gradient-primary); color: #000; }
-        button:hover { box-shadow: 0 5px 15px var(--core-green); }
-        .success { color: var(--core-green); }
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        /* Header */
+        .header {
+            background: var(--card-bg);
+            border: 2px solid var(--bitcoin-orange);
+            border-radius: 0;
+            padding: 25px;
+            margin-bottom: 30px;
+            position: relative;
+            overflow: hidden;
+        }
+        .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(247, 147, 26, 0.1), transparent);
+            animation: shimmer 3s infinite;
+        }
+        @keyframes shimmer {
+            0%, 100% { transform: translateX(-100%); }
+            50% { transform: translateX(100%); }
+        }
+        .logo {
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--bitcoin-orange);
+            margin-bottom: 5px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            position: relative;
+            z-index: 1;
+        }
+        .tagline {
+            color: var(--text-dim);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            position: relative;
+            z-index: 1;
+        }
+        .wallet-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            flex-wrap: wrap;
+            gap: 15px;
+            position: relative;
+            z-index: 1;
+        }
+        .wallet-status {
+            font-size: 12px;
+            color: var(--text-dim);
+            padding: 8px 15px;
+            border: 1px solid var(--border);
+            background: rgba(0,0,0,0.3);
+        }
+        .wallet-address {
+            color: var(--bitcoin-orange);
+            font-weight: bold;
+        }
+        /* Buttons */
+        button {
+            background: var(--gradient-primary);
+            color: #000;
+            border: none;
+            padding: 12px 30px;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            position: relative;
+            overflow: hidden;
+        }
+        button::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+        button:hover::before {
+            width: 300px;
+            height: 300px;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px var(--core-green);
+        }
+        button:disabled {
+            background: var(--border);
+            color: var(--text-dim);
+            cursor: not-allowed;
+            opacity: 0.5;
+        }
+        button:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+        .disconnect-btn, .resign-btn {
+            background: var(--gradient-primary);
+            color: #000;
+            text-shadow: 0 0 5px rgba(255, 68, 68, 0.8);
+        }
+        .claim-btn {
+            background: var(--gradient-success);
+            color: #000;
+            margin-top: 10px;
+        }
+        /* Grid Layout */
+        .grid {
+            display: grid;
+            grid-template-columns: 400px 1fr 400px;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        @media (max-width: 1200px) {
+            .grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+                gap: 15px;
+            }
+        }
+        /* Cards */
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            padding: 25px;
+        }
+        .card-header {
+            border-bottom: 2px solid var(--bitcoin-orange);
+            padding-bottom: 15px;
+            margin-bottom: 20px;
+        }
+        .card-title {
+            font-size: 18px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            color: var(--bitcoin-orange);
+        }
+        /* Game Selector Dropdowns */
+        .game-selector, .token-selector {
+            margin-bottom: 15px;
+        }
+        .game-selector select, .token-selector select {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--bitcoin-orange);
+            color: var(--text);
+        }
+        /* Chess Board */
+        #chessBoardContainer {
+            display: block;
+        }
+        .chess-board {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 0;
+            max-width: 600px;
+            margin: 0 auto;
+            border: 3px solid var(--bitcoin-orange);
+            aspect-ratio: 1;
+        }
+        .chess-square {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            touch-action: manipulation; /* Mobile touch */
+        }
+        .chess-square.light {
+            background: #3a3a3a;
+        }
+        .chess-square.dark {
+            background: #1a1a1a;
+        }
+        .chess-square:hover {
+            background: rgba(247, 147, 26, 0.2);
+        }
+        .chess-square.selected {
+            background: var(--burnt-orange);
+            box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+        .chess-square.valid-move {
+            background: rgba(0, 200, 81, 0.3);
+        }
+        .chess-square.valid-move::after {
+            content: '';
+            position: absolute;
+            width: 20%;
+            height: 20%;
+            background: var(--success);
+            border-radius: 50%;
+        }
+        /* Checkers Board (New: 10x10) */
+        #checkersBoardContainer {
+            display: none;
+        }
+        .checkers-board {
+            display: grid;
+            grid-template-columns: repeat(10, 1fr);
+            gap: 1px;
+            max-width: 500px;
+            margin: 0 auto;
+            border: 3px solid var(--bitcoin-orange);
+            aspect-ratio: 1;
+        }
+        .checkers-square {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px; /* Smaller for 10x10 */
+            cursor: pointer;
+            transition: all 0.2s;
+            position: relative;
+            touch-action: manipulation;
+        }
+        .checkers-square.light {
+            background: #f0d9b5;
+        }
+        .checkers-square.dark {
+            background: #b58863;
+        }
+        .checkers-square:hover {
+            background: rgba(247, 147, 26, 0.2);
+        }
+        .checkers-square.selected {
+            background: var(--burnt-orange);
+        }
+        .checkers-square.valid-move {
+            background: rgba(0, 200, 81, 0.3);
+        }
+        .checkers-square.valid-move::after {
+            content: '';
+            position: absolute;
+            width: 30%;
+            height: 30%;
+            background: var(--success);
+            border-radius: 50%;
+        }
+        .checker-piece {
+            width: 70%;
+            height: 70%;
+            border-radius: 50%;
+            border: 2px solid #333;
+            cursor: pointer;
+        }
+        .checker-piece.red { background: #ff6b6b; }
+        .checker-piece.black { background: #333; }
+        .checker-piece.king { border-color: gold; }
+        /* Game Controls */
+        .game-controls {
+            text-align: center;
+            margin-top: 20px;
+            padding: 15px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 5px;
+        }
+        .game-status {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: var(--bitcoin-orange);
+        }
+        .player-color {
+            font-size: 14px;
+            color: var(--success);
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        /* Chat Styles */
+        .chat-container {
+            height: 200px;
+            border: 1px solid var(--border);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            overflow-y: auto;
+            margin-top: 15px;
+            font-size: 12px;
+        }
+        .chat-message {
+            margin-bottom: 10px;
+            padding: 5px;
+            border-left: 3px solid var(--bitcoin-orange);
+        }
+        .chat-input {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .chat-input input {
+            flex: 1;
+        }
+        .chat-input button {
+            flex-shrink: 0;
+            padding: 12px 15px;
+        }
+        /* Game List */
+        .game-list {
+            max-height: 500px;
+            overflow-y: auto;
+        }
+        .game-item {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border);
+            padding: 15px;
+            margin-bottom: 10px;
+            transition: all 0.3s;
+        }
+        .game-item:hover {
+            border-color: var(--bitcoin-orange);
+            background: rgba(247, 147, 26, 0.1);
+        }
+        .game-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .game-id {
+            color: var(--bitcoin-orange);
+            font-weight: bold;
+        }
+        .game-stake {
+            color: var(--text);
+            font-size: 14px;
+        }
+        .game-player {
+            color: var(--text-dim);
+            font-size: 12px;
+            margin-top: 5px;
+        }
+        /* Form Elements */
+        input, select {
+            width: 100%;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid var(--border);
+            color: var(--text);
+            font-family: inherit;
+            font-size: 14px;
+            margin-top: 8px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: var(--bitcoin-orange);
+            background: rgba(247, 147, 26, 0.05);
+        }
+        label {
+            color: var(--text);
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: block;
+            margin-bottom: 5px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        /* Alerts */
+        .alert {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-left: 4px solid;
+            background: rgba(0, 0, 0, 0.5);
+            animation: slideIn 0.3s ease-out;
+        }
+        @keyframes slideIn {
+            from {
+                transform: translateX(-100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        .alert-success {
+            border-color: var(--success);
+            color: var(--success);
+        }
+        .alert-error {
+            border-color: var(--error);
+            color: var(--error);
+        }
+        .alert-info {
+            border-color: var(--bitcoin-orange);
+            color: var(--bitcoin-orange);
+        }
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 10px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--dark-bg);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--bitcoin-orange);
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--burnt-orange);
+        }
+        /* Loading Spinner */
+        .spinner {
+            border: 3px solid var(--border);
+            border-top: 3px solid var(--bitcoin-orange);
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .hidden {
+            display: none;
+        }
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 30px 0;
+            color: var(--text-dim);
+            font-size: 12px;
+            border-top: 1px solid var(--border);
+            margin-top: 40px;
+        }
+        .footer-link {
+            color: var(--bitcoin-orange);
+            text-decoration: none;
+            margin: 0 10px;
+        }
+        .footer-link:hover {
+            text-decoration: underline;
+        }
+        /* Mobile Enhancements */
+        @media (max-width: 768px) {
+            body { padding: 10px; }
+            .header { padding: 15px; }
+            .logo { font-size: 24px; }
+            .wallet-bar { justify-content: center; }
+            .chess-board, .checkers-board { 
+                max-width: 100vw; 
+                max-height: 50vh; 
+                font-size: 24px; /* Scale for mobile */
+            }
+            .chess-square, .checkers-square { 
+                min-height: 40px; 
+                min-width: 40px; 
+            }
+            button { padding: 15px 20px; font-size: 16px; /* Touch-friendly */ }
+            input, select { padding: 15px; font-size: 16px; }
+            .card { padding: 15px; }
+            .grid { gap: 15px; }
+            .chat-container { height: 150px; font-size: 14px; }
+            .chat-input { flex-direction: column; }
+            .form-group { margin-bottom: 15px; }
+        }
+        @media (orientation: landscape) { 
+            .grid { grid-template-columns: 1fr 1fr; } /* Side-by-side on landscape mobile */
+        }
     </style>
 </head>
 <body>
-    <!-- Header with Game Selector (Stake-like bar) -->
-    <div class="header">
-        <div class="logo">⚡ CROSSREALM</div>
-        <div class="game-selector">
-            <button onclick="selectGame('checkers')" class="game-btn">⚫ Checkers</button>
-            <button onclick="selectGame('chess')" class="game-btn">♟️ Chess</button>
-            <select onchange="selectGame(this.value)">
-                <option value="">More Games (Soon)</option>
-                <option value="fighters">Fighters</option>
-                <option value="racing">Racing</option>
-            </select>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="logo">⚡ CROSSREALM</div>
+            <div class="tagline">On-Chain Checkers & Chess • Powered by Bitcoin & Core</div>
+           
+            <div class="wallet-bar">
+                <div class="wallet-status">
+                    <span id="networkStatus">🔴 Not Connected</span>
+                    <span id="walletAddress" class="wallet-address"></span>
+                </div>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap; justify-content: center;">
+                    <button id="connectBtn" onclick="connectWallet()">Connect Wallet</button>
+                    <button id="disconnectBtn" class="disconnect-btn" onclick="disconnectWallet()" style="display: none; padding: 12px 20px;">Disconnect</button>
+                </div>
+            </div>
         </div>
-        <!-- Wallet bar unchanged -->
-    </div>
-    
-    <!-- Game Container (Responsive: Loads selected board) -->
-    <div id="gameContainer" class="game-board hidden">
-        <!-- Checkers Board (10x10, touch-drag) -->
-        <div id="checkersBoard" class="checkers-board hidden" style="display: grid; grid-template-columns: repeat(10, 1fr); gap: 1px; width: 400px; height: 400px; border: 2px solid var(--bitcoin-orange);">
-            <!-- JS populates 100 squares -->
+        <!-- Alerts -->
+        <div id="alertArea"></div>
+        <!-- Main Grid -->
+        <div class="grid">
+            <!-- Create Game -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">⚔️ Create Game</div>
+                </div>
+               
+                <!-- Game Dropdown -->
+                <div class="form-group game-selector">
+                    <label>Select Game</label>
+                    <select id="gameType" onchange="updateCreateButton()">
+                        <option value="chess">Chess</option>
+                        <option value="checkers">Checkers</option>
+                    </select>
+                </div>
+               
+                <!-- Token Dropdown -->
+                <div class="form-group token-selector">
+                    <label>Select Token</label>
+                    <select id="stakeToken" onchange="updateCreateButton()">
+                        <option value="CORE">CORE (Native)</option>
+                        <option value="WBTC">WBTC</option>
+                        <option value="USDT">USDT</option>
+                    </select>
+                </div>
+               
+                <div class="form-group">
+                    <label>Stake Amount</label>
+                    <input type="number" id="stakeAmount" placeholder="0.1" step="0.01" min="0.01" value="0.1" onchange="updateCreateButton()">
+                    <small style="color: var(--text-dim); font-size: 11px; display: block; margin-top: 5px;">
+                        Min: 0.01 • Max: 100 (in selected token)
+                    </small>
+                </div>
+                <button onclick="createGame()" id="createBtn" disabled style="width: 100%;">
+                    Create Game
+                </button>
+            </div>
+            <!-- Game Boards Container -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title" id="boardTitle">♟️ Game Board</div>
+                </div>
+               
+                <!-- Chess Board -->
+                <div id="chessBoardContainer">
+                    <p style="text-align: center; color: var(--text-dim); padding: 40px;">
+                        Select a game and create/join to play
+                    </p>
+                </div>
+               
+                <!-- Checkers Board (Hidden initially) -->
+                <div id="checkersBoardContainer" style="display: none;">
+                    <p style="text-align: center; color: var(--text-dim); padding: 40px;">
+                        Checkers board loads here
+                    </p>
+                </div>
+               
+                <div id="gameControls" class="game-controls hidden">
+                    <div id="playerColor" class="player-color"></div>
+                    <div id="gameStatus" class="game-status"></div>
+                    <button id="resignBtn" class="resign-btn hidden" onclick="resignGame(currentGameId)" style="width: 100%;">Resign Game</button>
+                    <button id="claimBtn" class="claim-btn hidden" onclick="claimTimeout(currentGameId)" style="width: 100%;">Claim Timeout Win</button>
+                </div>
+                <!-- Live Chat -->
+                <div id="liveChatSection" class="hidden">
+                    <div class="card-header" style="margin-top: 20px;">
+                        <div class="card-title">💬 Live Chat</div>
+                    </div>
+                    <div id="chatContainer" class="chat-container">
+                        <p style="text-align: center; color: var(--text-dim);">Chat loading...</p>
+                    </div>
+                    <div class="chat-input">
+                        <input type="text" id="chatInput" placeholder="Type a message..." maxlength="200">
+                        <button onclick="sendChatMessage()">Send</button>
+                    </div>
+                </div>
+            </div>
+            <!-- Available Games -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">🎯 Available Games</div>
+                </div>
+               
+                <button onclick="loadPendingGames()" style="width: 100%; margin-bottom: 15px;">
+                    Refresh
+                </button>
+               
+                <div class="game-list" id="gamesList">
+                    <p style="text-align: center; color: var(--text-dim); padding: 20px;">
+                        Connect wallet to see games
+                    </p>
+                </div>
+            </div>
         </div>
-        <!-- Chess Board (8x8, your original) -->
-        <div id="chessBoard" class="chess-board hidden"><!-- unchanged --></div>
+        <!-- My Games -->
+        <div class="card">
+            <div class="card-header">
+                <div class="card-title">📊 My Games</div>
+            </div>
+           
+            <button onclick="loadMyGames()" style="margin-bottom: 15px;">
+                Refresh My Games
+            </button>
+           
+            <div class="game-list" id="myGamesList">
+                <p style="text-align: center; color: var(--text-dim);">
+                    Connect wallet to see your games
+                </p>
+            </div>
+        </div>
+        <!-- Footer -->
+        <div class="footer">
+            <div>CrossRealm © 2025 • Built on Core Blockchain</div>
+            <div style="margin-top: 10px;">
+                <a href="#" class="footer-link">Docs</a>
+                <a href="#" class="footer-link">Twitter</a>
+                <a href="#" class="footer-link">Discord</a>
+            </div>
+        </div>
     </div>
-    
-    <!-- Create/Join Form (Multi-token select) -->
-    <div class="card">
-        <label>Stake Token:</label>
-        <select id="stakeToken">
-            <option value="CORE">CORE (Native)</option>
-            <option value="WBTC">WBTC</option>
-            <option value="USDT">USDT</option>
-        </select>
-        <input type="number" id="stakeAmount" placeholder="Stake (e.g., 0.01)" step="0.001">
-        <button onclick="createGame()">Create Game</button>
-    </div>
-    
     <script>
-        const HUB_ADDRESS = "0x..."; // Your deployed Hub
-        const hub = new ethers.Contract(HUB_ADDRESS, HUB_ABI, provider); // Your ABI
+        // ============ CONFIGURATION ============
+       
+        const HUB_ADDRESS = "0x..."; // Deployed Hub addr
+        const TOKEN_ADDRS = {
+            CORE: "0x...", // Native or WCORE
+            WBTC: "0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6",
+            USDT: "0x01ABAeA1f7c830BD89acc67ec4AF516284b1Bc33"
+        };
+        const CORE_TESTNET = {
+            chainId: "0x45a",
+            chainName: "Core Blockchain Testnet2",
+            rpcUrls: ["https://rpc.test2.btcs.network"],
+            blockExplorerUrls: ["https://scan.test2.btcs.network"],
+            nativeCurrency: { name: "tCORE2", symbol: "tCORE2", decimals: 18 }
+        };
+        // Firebase Config (rollback kept)
+        const firebaseConfig = { /* your config */ };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
         
-        let currentGame = null;
+        // ABI (Hub + games)
+        const HUB_ABI = [ /* Hub ABI */ ];
+        const GAME_ABI = [ /* Your game ABI */ ];
         
-        function selectGame(type) {
-            document.querySelectorAll('.checkers-board, .chess-board').forEach(b => b.classList.add('hidden'));
-            document.getElementById(type + 'Board').classList.remove('hidden');
-            currentGame = type;
-            initializeBoard(type); // Load rules/board
+        // Piece symbols (Chess + Checkers)
+        const PIECE_SYMBOLS = { /* Chess */ };
+        const CHECKER_SYMBOLS = { 0: '', 1: '🔴', 6: '👑🔴', 7: '⚫', 12: '👑⚫' };
+        
+        // State
+        let provider, signer, hub, currentGameContract, userAddress;
+        let currentGameId = null, selectedSquare = null, currentGame = null, chatRef = null;
+        let selectedGameType = 'chess'; // Default
+        let selectedToken = 'CORE';
+        
+        // Connect (unchanged, but set hub)
+        async function connectWallet() {
+            // ... your code ...
+            hub = new ethers.Contract(HUB_ADDRESS, HUB_ABI, signer);
+            currentGameContract = selectedGameType === 'chess' ? new ethers.Contract(CHESS_ADDR, GAME_ABI, signer) : new ethers.Contract(CHECKERS_ADDR, GAME_ABI, signer);
+            // ...
         }
         
+        // Game Select
+        function selectGame(type) {
+            selectedGameType = type;
+            document.getElementById('boardTitle').innerHTML = type === 'checkers' ? '⚫ Checkers Board' : '♟️ Chess Board';
+            document.getElementById('chessBoardContainer').style.display = type === 'chess' ? 'block' : 'none';
+            document.getElementById('checkersBoardContainer').style.display = type === 'checkers' ? 'block' : 'none';
+            updateCreateButton();
+            if (currentGameId) loadGame(currentGameId); // Reload for type
+        }
+        
+        // Token Select (updates in create)
+        document.getElementById('stakeToken').addEventListener('change', (e) => {
+            selectedToken = e.target.value;
+            updateCreateButton();
+        });
+        
+        // Create Game (Hub call, multi-token)
         async function createGame() {
-            const token = document.getElementById('stakeToken').value;
             const stake = ethers.parseEther(document.getElementById('stakeAmount').value);
+            const tokenAddr = TOKEN_ADDRS[selectedToken];
             
-            // Approve if ERC20
-            if (token !== 'CORE') {
-                const tokenContract = new ethers.Contract(tokenAddr[token], ERC20_ABI, signer);
+            if (selectedToken !== 'CORE') {
+                const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
                 await tokenContract.approve(HUB_ADDRESS, stake);
             }
             
-            const gameId = await hub.createGame(currentGame, stake, tokenAddr[token]); // Multi-token param
-            console.log("Game ID:", gameId);
+            const tx = await hub.createGame(selectedGameType, stake, tokenAddr, { value: selectedToken === 'CORE' ? stake : 0 });
+            await tx.wait();
+            showAlert('Game created!', 'success');
+            loadPendingGames();
         }
         
-        function initializeBoard(type) {
-            if (type === 'checkers') {
-                // 10x10 grid (touch events)
-                const board = document.getElementById('checkersBoard');
-                board.innerHTML = '';
-                for (let i = 0; i < 100; i++) {
-                    const sq = document.createElement('div');
-                    sq.className = `checkers-square ${(Math.floor(i/10) + i%10) % 2 ? 'light' : 'dark'}`;
-                    sq.dataset.pos = i;
-                    sq.addEventListener('touchstart', handleTouchStart); // Mobile drag
-                    sq.addEventListener('touchmove', handleTouchMove);
-                    sq.addEventListener('touchend', handleTouchEnd);
-                    board.appendChild(sq);
-                }
-                // Load initial pieces via getBoard call
-            } else if (type === 'chess') {
-                // Your original chess init
+        // Update Button
+        function updateCreateButton() {
+            const btn = document.getElementById('createBtn');
+            const stake = parseFloat(document.getElementById('stakeAmount').value) || 0;
+            btn.disabled = stake < 0.01 || !selectedGameType;
+            btn.innerHTML = `Create ${selectedGameType.charAt(0).toUpperCase() + selectedGameType.slice(1)} Game (${stake} ${selectedToken})`;
+        }
+        
+        // Render Checkers Board (New: 10x10)
+        function renderCheckersBoard(board, gameId, game) {
+            const container = document.getElementById('checkersBoardContainer');
+            let html = '<div class="checkers-board">';
+            for (let i = 0; i < 100; i++) {
+                const row = Math.floor(i / 10), col = i % 10;
+                const isLight = (row + col) % 2 === 0;
+                const piece = CHECKER_SYMBOLS[board[i] || 0];
+                html += `<div class="checkers-square ${isLight ? 'light' : 'dark'}" 
+                         onclick="selectSquare(${i}, ${gameId})" 
+                         ontouchstart="selectSquare(${i}, ${gameId})" 
+                         data-square="${i}">${piece}</div>`;
             }
+            html += '</div>';
+            // Info similar to chess
+            container.innerHTML = html + /* your info HTML */ '';
         }
         
-        // Touch handlers for mobile (drag pieces)
-        let touchStartPos = null;
-        function handleTouchStart(e) {
-            touchStartPos = { x: e.touches[0].clientX, y: e.touches[0].clientY, pos: parseInt(e.target.dataset.pos) };
-        }
-        function handleTouchMove(e) { /* Visual drag preview */ }
-        function handleTouchEnd(e) {
-            if (touchStartPos) {
-                const endPos = parseInt(e.changedTouches[0].target.dataset.pos || 0);
-                // Validate & makeMove via hub
-                hub.makeMove(gameId, touchStartPos.pos, endPos);
+        // Load Game (Swaps boards)
+        async function loadGame(gameId) {
+            currentGameId = gameId;
+            currentGame = await currentGameContract.getGame(gameId);
+            if (selectedGameType === 'checkers') {
+                const board = await currentGameContract.getBoard(gameId);
+                renderCheckersBoard(board, gameId, currentGame);
+            } else {
+                renderBoard(currentGame.board, gameId, currentGame); // Chess
             }
-            touchStartPos = null;
+            updateGameControls(currentGame);
+            initChat(gameId);
         }
         
-        // Responsive resize
-        window.addEventListener('resize', () => {
-            const boards = document.querySelectorAll('.checkers-board, .chess-board');
-            boards.forEach(b => {
-                b.style.width = Math.min(window.innerWidth * 0.9, 400) + 'px';
-                b.style.height = b.style.width;
-            });
-        });
+        // Select Square (Works for both; pos 0-99 for checkers)
+        async function selectSquare(square, gameId) {
+            // ... your logic, but check board size for validation
+            if (selectedGameType === 'checkers' && square >= 100) return showAlert('Invalid square', 'error');
+            // ... rest unchanged
+        }
+        
+        // Rest unchanged (join, loadPending, etc.; adapt getBoard calls)
+        // Mobile: Already enhanced with ontouchstart, media queries
     </script>
 </body>
 </html>
